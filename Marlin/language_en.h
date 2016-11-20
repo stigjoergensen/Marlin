@@ -488,7 +488,7 @@
   #define MSG_INFO_PROTOCOL                   "Protocol"
 #endif
 
-#if LCD_WIDTH >= 20
+#if LCD_WIDTH > 19
   #ifndef MSG_INFO_PRINT_COUNT
     #define MSG_INFO_PRINT_COUNT              "Print Count"
   #endif
@@ -553,6 +553,42 @@
 #ifndef MSG_FILAMENT_CHANGE_OPTION_RESUME
   #define MSG_FILAMENT_CHANGE_OPTION_RESUME   "Resume print"
 #endif
+
+
+  /**
+   *  
+   *  change filament sub menu
+   *  by stig.joergensen
+   *
+   *  Select extruder			MSG_FILAMENT_CHANGE_Extruder
+   *    Select Temperature      MSG_FILAMENT_CHANGE_Temperature
+   *      Load filament			MSG_FILAMENT_CHANGE_Load
+   *      UnLoad filament		MSG_FILAMENT_CHANGE_UnLoad
+   *      Back
+   *    Back
+   */
+#ifndef MSG_FILAMENT_CHANGE_Extruder
+  #define MSG_FILAMENT_CHANGE_Extruder  "Extruder"
+#endif
+#ifndef MSG_FILAMENT_CHANGE_Temperature
+  #define MSG_FILAMENT_CHANGE_Temperature "Temperature"
+#endif
+#ifndef MSG_FILAMENT_CHANGE_Load
+  #define MSG_FILAMENT_CHANGE_Load "Load Filament"
+#endif
+#ifndef MSG_FILAMENT_CHANGE_UnLoad    
+  #define MSG_FILAMENT_CHANGE_UnLoad "Unload Filament"
+#endif
+#ifndef MSG_FILAMENT_CHANGE_Cancel
+  #define MSG_FILAMENT_CHANGE_Cancel "Cancel"
+#endif
+#ifndef MSG_FILAMENT_CHANGE_Wait
+  #define MSG_FILAMENT_CHANGE_Wait "Please wait."
+#endif
+#ifndef MSG_FILAMENT_CHANGE_Heating
+  #define MSG_FILAMENT_CHANGE_Heating "Heating"
+#endif
+
 #if LCD_HEIGHT >= 4
   #ifndef MSG_FILAMENT_CHANGE_INIT_1
     #define MSG_FILAMENT_CHANGE_INIT_1          "Wait for start"

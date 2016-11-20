@@ -121,6 +121,7 @@ uint8_t lcdDrawUpdate = LCDVIEW_CLEAR_CALL_REDRAW; // Set when the LCD needs to 
   static void lcd_control_temperature_preheat_abs_settings_menu();
   static void lcd_control_motion_menu();
   static void lcd_control_volumetric_menu();
+  static void lcd_filament_change_menu();
 
   #if ENABLED(DAC_STEPPER_CURRENT)
     static void dac_driver_commit();
@@ -303,6 +304,7 @@ uint8_t lcdDrawUpdate = LCDVIEW_CLEAR_CALL_REDRAW; // Set when the LCD needs to 
   #define MENU_BACK(LABEL) MENU_ITEM(back, LABEL, 0)
 
   // Used to print static text with no visible cursor.
+  // STATIC_ITEM(Label, Center, Invert, args)
   #define STATIC_ITEM(LABEL, ...) \
     if (_menuLineNr == _thisItemNr) { \
       if (_skipStatic && encoderLine <= _thisItemNr) { \
@@ -576,10 +578,14 @@ void kill_screen(const char* lcd_msg) {
    * "Main" menu
    *
    */
-
+  
   static void lcd_main_menu() {
     START_MENU();
     MENU_BACK(MSG_WATCH);
+
+    //#ifdef LCD_Filement_Change
+      MENU_ITEM(submenu,MSG_FILAMENTCHANGE, lcd_filament_change_menu);
+    //#endif
 
     #if ENABLED(BLTOUCH)
       if (!endstops.z_probe_enabled && TEST_BLTOUCH())
@@ -627,6 +633,117 @@ void kill_screen(const char* lcd_msg) {
 
     END_MENU();
   }
+
+  /**
+   *  
+   *  change filament sub menu
+   *  by stig.joergensen
+   *
+   *  Select extruder       MSG_FILAMENT_CHANGE_Extruder
+   *    Select Temperature  MSG_FILAMENT_CHANGE_Temperature
+   *      Load filament     MSG_FILAMENT_CHANGE_Load
+   *        Heating
+   *        Cancel          MSG_FILAMENT_CHANGE_Cancel
+   *      UnLoad filament   MSG_FILAMENT_CHANGE_UnLoad
+   *        Heating
+   *        Cancel          MSG_FILAMENT_CHANGE_Cancel
+   *      Back
+   *    Back
+   */
+    byte lcd_filament_change_state = 0;
+    int16_t lcd_filament_change_temp;
+    int16_t lcd_filament_change_extruder;
+
+    static void lcd_filament_change_heat() {  // lets heat the choosen hotend
+      char buffer[8];  // "###/###o"
+      thermalManager.setTargetHotend(lcd_filament_change_temp, lcd_filament_change_extruder);
+      safe_delay(250);
+      bool menuclick = false; // lcd_clicked is not updated in this busy wait loop, so we get it our self
+      while(thermalManager.isHeatingHotend(lcd_filament_change_extruder) && !menuclick) { 
+        START_MENU();
+        #if LCD_HEIGHT > 2
+          STATIC_ITEM(MSG_FILAMENT_CHANGE_Wait, true, false);
+        #endif
+        sprintf_P(buffer, PSTR("%i/%i" LCD_STR_DEGREE ), int(thermalManager.current_temperature[lcd_filament_change_extruder]), int(thermalManager.target_temperature[lcd_filament_change_extruder]));
+
+        STATIC_ITEM(MSG_FILAMENT_CHANGE_Heating ": ", true, false, buffer);
+        STATIC_ITEM(">" MSG_FILAMENT_CHANGE_Cancel,false,false);  // simulate a menu item
+        END_MENU();
+        menuclick = LCD_CLICKED;
+        safe_delay(250);  // wait a 1/4 sec before we update the display again in the loop, or we exit due to cancel
+      }
+      if(menuclick) {  // we got a click on our simulated cancel menu item
+        defer_return_to_status = false;  // revert to normal menu behaivour if we canceled the operation
+        lcd_quick_feedback();  // do audio feed back on the click
+        thermalManager.setTargetHotend(0, lcd_filament_change_extruder);
+        lcd_filament_change_state = 0;   // Revert to Change filament menu
+      } else {
+        lcd_buzz(800,2000);
+      }
+      lcd_clicked=false; // reset the lcd clicked just in case we actually got it from our manual menu_item
+      lcdDrawUpdate = LCDVIEW_CLEAR_CALL_REDRAW;
+    }
+
+    static void lcd_filament_change_unload() {
+      lcdDrawUpdate = LCDVIEW_CLEAR_CALL_REDRAW;
+      lcd_filament_change_heat();
+      if (lcd_filament_change_state != 0) {
+        // I wonder if the last parameter buffer_line_kinematic should be the extuder choosen, and if i need to change extruder with T?? or should i set active_extruder?
+        enqueue_and_echo_commands_P(PSTR("T" STRINGIFY(lcd_filament_change_extruder)));
+        current_position[E_AXIS] -= lcd_filament_change_unload_length;
+        planner.buffer_line_kinematic(current_position, MMM_TO_MMS(lcd_filament_change_speed), lcd_filament_change_extruder);  
+      }
+    }
+    
+    static void lcd_filament_change_load() {
+      lcdDrawUpdate = LCDVIEW_CLEAR_CALL_REDRAW;
+      lcd_filament_change_heat();
+      if (lcd_filament_change_state != 0) {
+        // I wonder if the last parameter buffer_line_kinematic should be the extuder choosen, and if i need to change extruder with T?? or should i set active_extruder?
+        enqueue_and_echo_commands_P(PSTR("T" STRINGIFY(lcd_filament_change_extruder)));
+        current_position[E_AXIS] += lcd_filament_change_load_length;
+        planner.buffer_line_kinematic(current_position, MMM_TO_MMS(lcd_filament_change_speed), lcd_filament_change_extruder); 
+      }
+    }
+
+    static void lcd_filament_change_setTemperature() {
+      lcdDrawUpdate = LCDVIEW_CLEAR_CALL_REDRAW;
+      lcd_filament_change_state = 2;
+    }
+  
+    static void lcd_filament_change_setExtruder() {
+      defer_return_to_status = true;  // make sure we dont go to status screen while we are chaning filament
+      lcdDrawUpdate = LCDVIEW_CLEAR_CALL_REDRAW;
+      lcd_filament_change_state = 1;
+    }
+
+    static void lcd_filament_change_done() {
+      lcd_goto_previous_menu();
+      defer_return_to_status = false;  // revert to normal menu behaivour if we canceled the operation
+      thermalManager.setTargetHotend(0, lcd_filament_change_extruder);
+      lcd_filament_change_state = 0;   // Revert to Change filament menu
+    }
+
+  static void lcd_filament_change_menu() {
+    START_MENU();
+    switch(lcd_filament_change_state) {
+      case 0:
+        MENU_ITEM_EDIT_CALLBACK(int3, MSG_FILAMENT_CHANGE_Extruder, &lcd_filament_change_extruder, 0, EXTRUDERS-1, lcd_filament_change_setExtruder);
+        MENU_BACK(MSG_MAIN);
+      break;
+      case 1:
+        MENU_ITEM_EDIT_CALLBACK(int3, MSG_FILAMENT_CHANGE_Temperature, &lcd_filament_change_temp, lcd_filament_change_min_temperature, lcd_filament_change_max_temperature, lcd_filament_change_setTemperature);
+        MENU_BACK(MSG_MAIN);
+      break;
+      case 2:
+        MENU_ITEM(function,MSG_FILAMENT_CHANGE_UnLoad,lcd_filament_change_unload);
+        MENU_ITEM(function,MSG_FILAMENT_CHANGE_Load,lcd_filament_change_load);
+        MENU_ITEM(function,MSG_MAIN,lcd_filament_change_done);
+      break;
+    }
+    END_MENU();
+  } // lcd_filament_change()
+
 
   /**
    *
@@ -713,13 +830,6 @@ void kill_screen(const char* lcd_msg) {
     #if TEMP_SENSOR_BED != 0
       void watch_temp_callback_bed() {}
     #endif
-  #endif
-
-  #if ENABLED(FILAMENT_CHANGE_FEATURE)
-    static void lcd_enqueue_filament_change() {
-      lcd_filament_change_show_message(FILAMENT_CHANGE_MESSAGE_INIT);
-      enqueue_and_echo_commands_P(PSTR("M600"));
-    }
   #endif
 
   /**
@@ -837,7 +947,7 @@ void kill_screen(const char* lcd_msg) {
     // Change filament
     //
     #if ENABLED(FILAMENT_CHANGE_FEATURE)
-       MENU_ITEM(function, MSG_FILAMENTCHANGE, lcd_enqueue_filament_change);
+       MENU_ITEM(gcode, MSG_FILAMENTCHANGE, PSTR("M600"));
     #endif
 
     END_MENU();
@@ -2011,7 +2121,7 @@ void kill_screen(const char* lcd_msg) {
 
         START_SCREEN();                                                                                // 12345678901234567890
         STATIC_ITEM(MSG_INFO_PRINT_COUNT ": ", false, false, itostr3left(stats.totalPrints));          // Print Count: 999
-        STATIC_ITEM(MSG_INFO_COMPLETED_PRINTS": ", false, false, itostr3left(stats.finishedPrints)); // Completed  : 666
+        STATIC_ITEM(MSG_INFO_COMPLETED_PRINTS"  : ", false, false, itostr3left(stats.finishedPrints)); // Completed  : 666
 
         duration_t elapsed = stats.printTime;
         elapsed.toString(buffer);
@@ -2707,93 +2817,77 @@ void lcd_update() {
       }
     #endif // ULTIPANEL
 
-    #if ENABLED(ENSURE_SMOOTH_MOVES) && ENABLED(ALWAYS_ALLOW_MENU)
-      #define STATUS_UPDATE_CONDITION planner.long_move()
-    #else
-      #define STATUS_UPDATE_CONDITION true
-    #endif
-    #if ENABLED(ENSURE_SMOOTH_MOVES) && DISABLED(ALWAYS_ALLOW_MENU)
-      #define LCD_HANDLER_CONDITION planner.long_move()
-    #else
-      #define LCD_HANDLER_CONDITION true
-    #endif
-
     // We arrive here every ~100ms when idling often enough.
     // Instead of tracking the changes simply redraw the Info Screen ~1 time a second.
     static int8_t lcd_status_update_delay = 1; // first update one loop delayed
-    if (STATUS_UPDATE_CONDITION &&
+    if (
       #if ENABLED(ULTIPANEL)
         currentScreen == lcd_status_screen &&
       #endif
-        !lcd_status_update_delay--
-    ) {
+        !lcd_status_update_delay--) {
       lcd_status_update_delay = 9;
       lcdDrawUpdate = LCDVIEW_REDRAW_NOW;
     }
 
-    if (LCD_HANDLER_CONDITION) {
+    if (lcdDrawUpdate) {
 
-      if (lcdDrawUpdate) {
-
-        switch (lcdDrawUpdate) {
-          case LCDVIEW_CALL_NO_REDRAW:
-            lcdDrawUpdate = LCDVIEW_NONE;
-            break;
-          case LCDVIEW_CLEAR_CALL_REDRAW: // set by handlers, then altered after (rarely occurs here)
-          case LCDVIEW_CALL_REDRAW_NEXT:  // set by handlers, then altered after (never occurs here?)
-            lcdDrawUpdate = LCDVIEW_REDRAW_NOW;
-          case LCDVIEW_REDRAW_NOW:        // set above, or by a handler through LCDVIEW_CALL_REDRAW_NEXT
-          case LCDVIEW_NONE:
-            break;
-        } // switch
-
-        #if ENABLED(ULTIPANEL)
-          #define CURRENTSCREEN() (*currentScreen)(), lcd_clicked = false
-        #else
-          #define CURRENTSCREEN() lcd_status_screen()
-        #endif
-
-        #if ENABLED(DOGLCD)  // Changes due to different driver architecture of the DOGM display
-          static int8_t dot_color = 0;
-          dot_color = 1 - dot_color;
-          u8g.firstPage();
-          do {
-            lcd_setFont(FONT_MENU);
-            u8g.setPrintPos(125, 0);
-            u8g.setColorIndex(dot_color); // Set color for the alive dot
-            u8g.drawPixel(127, 63); // draw alive dot
-            u8g.setColorIndex(1); // black on white
-            CURRENTSCREEN();
-          } while (u8g.nextPage());
-        #else
-          CURRENTSCREEN();
-        #endif
+      switch (lcdDrawUpdate) {
+        case LCDVIEW_CALL_NO_REDRAW:
+          lcdDrawUpdate = LCDVIEW_NONE;
+          break;
+        case LCDVIEW_CLEAR_CALL_REDRAW: // set by handlers, then altered after (rarely occurs here)
+        case LCDVIEW_CALL_REDRAW_NEXT:  // set by handlers, then altered after (never occurs here?)
+          lcdDrawUpdate = LCDVIEW_REDRAW_NOW;
+        case LCDVIEW_REDRAW_NOW:        // set above, or by a handler through LCDVIEW_CALL_REDRAW_NEXT
+        case LCDVIEW_NONE:
+          break;
       }
 
       #if ENABLED(ULTIPANEL)
+        #define CURRENTSCREEN() (*currentScreen)(), lcd_clicked = false
+      #else
+        #define CURRENTSCREEN() lcd_status_screen()
+      #endif
 
-        // Return to Status Screen after a timeout
-        if (currentScreen == lcd_status_screen || defer_return_to_status)
-          return_to_status_ms = ms + LCD_TIMEOUT_TO_STATUS;
-        else if (ELAPSED(ms, return_to_status_ms))
-          lcd_return_to_status();
+      #if ENABLED(DOGLCD)  // Changes due to different driver architecture of the DOGM display
+        static int8_t dot_color = 0;
+        dot_color = 1 - dot_color;
+        u8g.firstPage();
+        do {
+          lcd_setFont(FONT_MENU);
+          u8g.setPrintPos(125, 0);
+          u8g.setColorIndex(dot_color); // Set color for the alive dot
+          u8g.drawPixel(127, 63); // draw alive dot
+          u8g.setColorIndex(1); // black on white
+          CURRENTSCREEN();
+        } while (u8g.nextPage());
+      #else
+        CURRENTSCREEN();
+      #endif
+    }
 
-      #endif // ULTIPANEL
+    #if ENABLED(ULTIPANEL)
 
-      switch (lcdDrawUpdate) {
-        case LCDVIEW_CLEAR_CALL_REDRAW:
-          lcd_implementation_clear();
-        case LCDVIEW_CALL_REDRAW_NEXT:
-          lcdDrawUpdate = LCDVIEW_REDRAW_NOW;
-          break;
-        case LCDVIEW_REDRAW_NOW:
-          lcdDrawUpdate = LCDVIEW_NONE;
-          break;
-        case LCDVIEW_NONE:
-          break;
-      } // switch
+      // Return to Status Screen after a timeout
+      if (currentScreen == lcd_status_screen || defer_return_to_status)
+        return_to_status_ms = ms + LCD_TIMEOUT_TO_STATUS;
+      else if (ELAPSED(ms, return_to_status_ms))
+        lcd_return_to_status();
 
-    } // LCD_HANDLER_CONDITION
+    #endif // ULTIPANEL
+
+    switch (lcdDrawUpdate) {
+      case LCDVIEW_CLEAR_CALL_REDRAW:
+        lcd_implementation_clear();
+      case LCDVIEW_CALL_REDRAW_NEXT:
+        lcdDrawUpdate = LCDVIEW_REDRAW_NOW;
+        break;
+      case LCDVIEW_REDRAW_NOW:
+        lcdDrawUpdate = LCDVIEW_NONE;
+        break;
+      case LCDVIEW_NONE:
+        break;
+    }
 
   }
 }
