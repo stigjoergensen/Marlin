@@ -121,7 +121,9 @@ uint8_t lcdDrawUpdate = LCDVIEW_CLEAR_CALL_REDRAW; // Set when the LCD needs to 
   static void lcd_control_temperature_preheat_abs_settings_menu();
   static void lcd_control_motion_menu();
   static void lcd_control_volumetric_menu();
-  static void lcd_filament_change_menu();
+  #ifdef LCD_FILAMENT_CHANGE_FEATURE
+    static void lcd_filament_change_menu();
+  #endif
 
   #if ENABLED(DAC_STEPPER_CURRENT)
     static void dac_driver_commit();
